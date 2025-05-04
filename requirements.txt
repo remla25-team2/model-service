@@ -1,0 +1,5 @@
+Flask==2.2.5
+lib-ml @ git+https://github.com/remla25-team2/lib-ml.git@v0.1.0
+joblib
+requests
+setuptools_scm
