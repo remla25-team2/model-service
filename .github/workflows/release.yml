@@ -69,6 +69,8 @@ jobs:
       - name: load model
         run: |
           gh release download latest -R remla25-team2/model-training --pattern '*.pkl' --dir models/ 
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build & push multi-arch image
         uses: docker/build-push-action@v3
@@ -81,3 +83,4 @@ jobs:
             ghcr.io/${{ github.repository }}:${{ env.VERSION }}
             ghcr.io/${{ github.repository }}:${{ env.MAJOR }}.${{ env.MINOR }}.latest
             ghcr.io/${{ github.repository }}:latest
+        
