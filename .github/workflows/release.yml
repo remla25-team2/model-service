@@ -1,44 +1,98 @@
 name: Release
+
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    tags:
+      - 'v*.*.*'
+
 jobs:
-  build:
-    runs-on: ubuntu-24.04
+  build-and-push:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
 
-      - uses: docker/login-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
         with:
           registry: ghcr.io
-          username: remla25-team2-bot
-          password: ${{ secrets.GHBOT_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Parse version info from tag
+      - name: Parse tag name
         run: |
-          VERSION=${GITHUB_REF:11}
-          MAJOR=$(echo "$VERSION" | cut -d . -f 1)
-          MINOR=$(echo "$VERSION" | cut -d . -f 2)
-          PATCH=$(echo "$VERSION" | cut -d . -f 3)
-          echo "version=$VERSION" >> $GITHUB_ENV
-          echo "version_major=$MAJOR" >> $GITHUB_ENV
-          echo "version_minor=$MINOR" >> $GITHUB_ENV
-          echo "version_patch=$PATCH" >> $GITHUB_ENV
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          echo "MAJOR=$MAJOR" >> $GITHUB_ENV
+          echo "MINOR=$MINOR" >> $GITHUB_ENV
 
-      - name: Build and push multi-arch image
+      - name: Fetch latest lib-ml and lib-version tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHBOT_TOKEN }}
         run: |
-          IMG="ghcr.io/${{ github.repository }}"
-          IMG=${IMG@L}
-          docker buildx create --use --name multiarch-builder
-          docker buildx inspect --bootstrap
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --tag $IMG:${{ env.version }} \
-            --tag $IMG:${{ env.version_major }}.${{ env.version_minor }}.latest \
-            --tag $IMG:${{ env.version_major }}.latest \
-            --tag $IMG:latest \
-            --push \
-            .
+          # Fetch latest lib-ml tag
+          LIB_ML_API="https://api.github.com/repos/remla25-team2/lib-ml/releases/latest"
+          HEADERS=""
+          if [ -n "$GITHUB_TOKEN" ]; then
+            HEADERS="-H 'Authorization: token $GITHUB_TOKEN'"
+          fi
+          LIB_ML_TAG=$(curl -s $HEADERS $LIB_ML_API | jq -r '.tag_name')
+          if [ -z "$LIB_ML_TAG" ]; then
+            echo "Error: Could not fetch lib-ml tag"
+            exit 1
+          fi
+          echo "Latest lib-ml tag: $LIB_ML_TAG"
+
+          # Fetch latest lib-version tag
+          LIB_VERSION_API="https://api.github.com/repos/remla25-team2/lib-version/releases/latest"
+          LIB_VERSION_TAG=$(curl -s $HEADERS $LIB_VERSION_API | jq -r '.tag_name')
+          if [ -z "$LIB_VERSION_TAG" ]; then
+            echo "Error: Could not fetch lib-version tag"
+            exit 1
+          fi
+          echo "Latest lib-version tag: $LIB_VERSION_TAG"
+
+          # Update requirements.txt with latest tags
+          sed -i "s|lib-ml @ git+https://github.com/remla25-team2/lib-ml@VERSION|lib-ml @ git+https://github.com/remla25-team2/lib-ml@$LIB_ML_TAG|" requirements.txt
+          sed -i "s|lib-version @ git+https://github.com/remla25-team2/lib-version@VERSION|lib-version @ git+https://github.com/remla25-team2/lib-version@$LIB_VERSION_TAG|" requirements.txt
+          cat requirements.txt
+
+      - name: Fetch model and vectorizer from model-training releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHBOT_TOKEN }}
+        run: |
+          mkdir -p models bow
+          API_URL="https://api.github.com/repos/remla25-team2/model-training/releases/latest"
+          HEADERS=""
+          if [ -n "$GITHUB_TOKEN" ]; then
+            HEADERS="-H 'Authorization: token $GITHUB_TOKEN'"
+          fi
+          RELEASE_JSON=$(curl -s $HEADERS $API_URL)
+          MODEL_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name == "c2_Classifier_Sentiment_Model") | .browser_download_url')
+          VECTORIZER_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name == "c1_BoW_Sentiment_Model.pkl") | .browser_download_url')
+          if [ -z "$MODEL_URL" ] || [ -z "$VECTORIZER_URL" ]; then
+            echo "Error: Model or vectorizer not found in latest release"
+            exit 1
+          fi
+          echo "Downloaded model and vectorizer successfully"
+
+      - name: Build & push multi-arch image
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}:${{ env.MAJOR }}.${{ env.MINOR }}.latest
+            ghcr.io/${{ github.repository }}:latest
