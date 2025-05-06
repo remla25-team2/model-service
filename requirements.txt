@@ -1,0 +1,5 @@
+Flask==2.2.5
+lib-ml @ git+https://github.com/remla25-team2/lib-ml@v0.0.2
+lib-version @ git+https://github.com/remla25-team2/lib-version@v0.0.1
+joblib
+requests

@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jq and GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq gh
+
+      - name: Parse tag name
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION#v}"
+          echo "MAJOR=v$MAJOR" >> $GITHUB_ENV
+          echo "MINOR=$MINOR" >> $GITHUB_ENV
+
+      - name: Fetch latest lib-ml and lib-version tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHBOT_TOKEN }}
+        run: |
+          # Fetch latest lib-ml tag
+          LIB_ML_API="https://api.github.com/repos/remla25-team2/lib-ml/releases/latest"
+          HEADERS=""
+          if [ -n "$GITHUB_TOKEN" ]; then
+            HEADERS="-H 'Authorization: token $GITHUB_TOKEN'"
+          fi
+          LIB_ML_TAG=$(curl -s $HEADERS $LIB_ML_API | jq -r '.tag_name // "v0.0.3"')
+          echo "LIB_ML_TAG=$LIB_ML_TAG" >> $GITHUB_ENV
+          echo "Latest lib-ml tag: $LIB_ML_TAG"
+
+          # Fetch latest lib-version tag
+          LIB_VERSION_API="https://api.github.com/repos/remla25-team2/lib-version/releases/latest"
+          LIB_VERSION_TAG=$(curl -s $HEADERS $LIB_VERSION_API | jq -r '.tag_name // "v0.0.1"')
+          echo "LIB_VERSION_TAG=$LIB_VERSION_TAG" >> $GITHUB_ENV
+          echo "Latest lib-version tag: $LIB_VERSION_TAG"
+
+          # Update requirements.txt with latest tags
+          sed -i "s|lib-ml @ git+https://github.com/remla25-team2/lib-ml@.*|lib-ml @ git+https://github.com/remla25-team2/lib-ml@$LIB_ML_TAG|" requirements.txt
+          sed -i "s|lib-version @ git+https://github.com/remla25-team2/lib-version@.*|lib-version @ git+https://github.com/remla25-team2/lib-version@$LIB_VERSION_TAG|" requirements.txt
+          cat requirements.txt
+
+      - name: Download latest model artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GHBOT_TOKEN }}
+        run: |
+          mkdir -p models bow
+          gh release download \
+            --repo remla25-team2/model-training \
+            --pattern 'SentimentModel.pkl' \
+            --dir models/ \
+          && gh release download \
+            --repo remla25-team2/model-training \
+            --pattern 'c1_BoW_Sentiment_Model.pkl' \
+            --dir bow/
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHBOT_TOKEN }}
+
+      - name: Build & push multi-arch image
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ env.VERSION }}
+            ghcr.io/${{ github.repository }}:${{ env.MAJOR }}.${{ env.MINOR }}.latest
+            ghcr.io/${{ github.repository }}:latest
