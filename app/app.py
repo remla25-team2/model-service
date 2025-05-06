@@ -29,14 +29,12 @@ model, preprocessor = load_model_and_preprocessor()
 
 @app.route("/predict", methods=["GET"])
 def predict():
-    """
-    Expects query param ?text=...
-    Returns JSON: { "sentiment": 0 or 1 }
-    """
     text = request.args.get("text", "")
-    X = preprocessor.transform([text])
+    X_sparse = preprocessor.transform([text])
+    X = X_sparse.toarray()  
     score = model.predict(X)[0]
     return jsonify(sentiment=int(score))
+
 
 @app.route("/version", methods=["GET"])
 def version():
