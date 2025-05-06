@@ -71,11 +71,16 @@ jobs:
         run: |
           gh release list --repo remla25-team2/model-training
 
-      - name: load model
-        run: |
-          gh release download latest -R remla25-team2/model-training --pattern '*.pkl' --dir models/ 
+      - name: Download latest model artifacts
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          gh release download \
+            --repo remla25-team2/model-training \
+            --latest \
+            --pattern '*.pkl' \
+            --dir models/
+
 
       - name: Build & push multi-arch image
         uses: docker/build-push-action@v3
