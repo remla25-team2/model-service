@@ -3,6 +3,7 @@ from lib_ml.preprocessing import TextPreprocessor
 from lib_version.version_util import VersionUtil
 import joblib
 import logging
+import os 
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
