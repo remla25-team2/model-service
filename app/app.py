@@ -9,8 +9,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Paths to artifacts included in the image
-MODEL_PATH = "/app/models/Sentiment_Model.pkl"
-VECTORIZER_PATH = "/app/bow/c1_BoW_Sentiment_Model.pkl"
+MODEL_PATH = "models/SentimentModel.pkl"
+VECTORIZER_PATH = "bow/c1_BoW_Sentiment_Model.pkl"
 
 def load_model_and_preprocessor():
     """Load the model and preprocessor from included artifacts."""
