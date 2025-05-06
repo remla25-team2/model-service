@@ -65,12 +65,17 @@ jobs:
           sed -i "s|lib-ml @ git+https://github.com/remla25-team2/lib-ml@VERSION|lib-ml @ git+https://github.com/remla25-team2/lib-ml@$LIB_ML_TAG|" requirements.txt
           sed -i "s|lib-version @ git+https://github.com/remla25-team2/lib-version@VERSION|lib-version @ git+https://github.com/remla25-team2/lib-version@$LIB_VERSION_TAG|" requirements.txt
           cat requirements.txt
+      - name: List releases in model-training
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          gh release list --repo remla25-team2/model-training
 
       - name: load model
         run: |
           gh release download latest -R remla25-team2/model-training --pattern '*.pkl' --dir models/ 
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Build & push multi-arch image
         uses: docker/build-push-action@v3
