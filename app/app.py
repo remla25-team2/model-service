@@ -36,6 +36,10 @@ def predict():
     return jsonify(sentiment=int(score))
 
 
+@app.route("/check_health", methods=["GET"])
+def check_health():
+	return 'OK', 200
+
 @app.route("/version", methods=["GET"])
 def version():
     """
