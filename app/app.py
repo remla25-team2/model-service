@@ -1,9 +1,13 @@
+"""
+Flask application for sentiment analysis using a pre-trained model.
+"""
+import logging
+import os
+
+import joblib
 from flask import Flask, jsonify, request
 from lib_ml.preprocessing import TextPreprocessor
 from lib_version.version_util import VersionUtil
-import joblib
-import logging
-import os 
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -16,12 +20,12 @@ VECTORIZER_PATH = "../bow/c1_BoW_Sentiment_Model.pkl"
 def load_model_and_preprocessor():
     """Load the model and preprocessor from included artifacts."""
     try:
-        model = joblib.load(MODEL_PATH)
-        preprocessor = TextPreprocessor.load(VECTORIZER_PATH)
+        sentiment_model = joblib.load(MODEL_PATH)
+        text_preprocessor = TextPreprocessor.load(VECTORIZER_PATH)
         logger.info("Successfully loaded model and preprocessor")
-        return model, preprocessor
+        return sentiment_model, text_preprocessor
     except Exception as e:
-        logger.error(f"Failed to load model or preprocessor: {e}")
+        logger.error("Failed to load model or preprocessor: %s", e)
         raise
 
 # Load model and preprocessor at startup
@@ -29,16 +33,18 @@ model, preprocessor = load_model_and_preprocessor()
 
 @app.route("/predict", methods=["GET"])
 def predict():
+    """Predict sentiment for given text."""
     text = request.args.get("text", "")
-    X_sparse = preprocessor.transform([text])
-    X = X_sparse.toarray()  
-    score = model.predict(X)[0]
+    x_sparse = preprocessor.transform([text])
+    x_array = x_sparse.toarray()
+    score = model.predict(x_array)[0]
     return jsonify(sentiment=int(score))
 
 
 @app.route("/check_health", methods=["GET"])
 def check_health():
-	return 'OK', 200
+    """Health check endpoint."""
+    return 'OK', 200
 
 @app.route("/version", methods=["GET"])
 def version():
