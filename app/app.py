@@ -26,7 +26,7 @@ MODEL_REPO = os.environ.get("MODEL_REPO", "remla25-team2/model-training")
 def download_file(url, filepath):
     """Download a file from URL to filepath."""
     try:
-        response = requests.get(url, stream=True)
+        response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()
 
         # Create directory if it doesn't exist
