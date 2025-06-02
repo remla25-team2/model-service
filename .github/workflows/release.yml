@@ -1,92 +1,170 @@
-name: Release
+name: Release Model Service
 
 on:
   push:
+    branches:
+      - main
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
+
+env:
+  PYTHON_VERSION: "3.10"
+  COVERAGE_THRESHOLD: "90"
 
 jobs:
-  build-and-push:
+  test:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check out code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install jq and GitHub CLI
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq gh
+          python -m pip install --upgrade pip
+          # Install base dependencies first, including lib-ml and lib-version from requirements.txt
+          pip install -r requirements.txt
+          # Install development and testing tools
+          pip install pytest coverage pytest-cov pylint memory-profiler
 
-      - name: Parse tag name
+      - name: Pylint (warnings break the build)
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION#v}"
-          echo "MAJOR=v$MAJOR" >> $GITHUB_ENV
-          echo "MINOR=$MINOR" >> $GITHUB_ENV
+          # Assuming the main service code is in the 'app' directory relative to the repo root
+          # Adjust if your source code structure is different
+          pylint app
 
-      - name: Fetch latest lib-ml and lib-version tags
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHBOT_TOKEN }}
+      - name: Unit tests + coverage
         run: |
-          # Fetch latest lib-ml tag
-          LIB_ML_API="https://api.github.com/repos/remla25-team2/lib-ml/releases/latest"
-          HEADERS=""
-          if [ -n "$GITHUB_TOKEN" ]; then
-            HEADERS="-H 'Authorization: token $GITHUB_TOKEN'"
-          fi
-          LIB_ML_TAG=$(curl -s $HEADERS $LIB_ML_API | jq -r '.tag_name // "v0.0.3"')
-          echo "LIB_ML_TAG=$LIB_ML_TAG" >> $GITHUB_ENV
-          echo "Latest lib-ml tag: $LIB_ML_TAG"
+          # Run tests in the 'tests' directory and collect coverage for the 'app' directory
+          coverage run -m pytest -q tests/
+          coverage xml
+          # Extract coverage percentage from the XML report
+          echo "COVER=$(coverage xml -o - \
+                | grep -o 'line-rate=\"[0-9.]*\"' \
+                | cut -d\" -f2)" >> $GITHUB_ENV
 
-          # Fetch latest lib-version tag
-          LIB_VERSION_API="https://api.github.com/repos/remla25-team2/lib-version/releases/latest"
-          LIB_VERSION_TAG=$(curl -s $HEADERS $LIB_VERSION_API | jq -r '.tag_name // "v0.0.1"')
-          echo "LIB_VERSION_TAG=$LIB_VERSION_TAG" >> $GITHUB_ENV
-          echo "Latest lib-version tag: $LIB_VERSION_TAG"
-
-          # Update requirements.txt with latest tags
-          sed -i "s|lib-ml @ git+https://github.com/remla25-team2/lib-ml@.*|lib-ml @ git+https://github.com/remla25-team2/lib-ml@$LIB_ML_TAG|" requirements.txt
-          sed -i "s|lib-version @ git+https://github.com/remla25-team2/lib-version@.*|lib-version @ git+https://github.com/remla25-team2/lib-version@$LIB_VERSION_TAG|" requirements.txt
-          cat requirements.txt
-
-      - name: Download latest model artifacts
-        env:
-          GH_TOKEN: ${{ secrets.GHBOT_TOKEN }}
+      - name: Fail if coverage below threshold
         run: |
-          mkdir -p models bow
-          gh release download \
-            --repo remla25-team2/model-training \
-            --pattern 'SentimentModel.pkl' \
-            --dir models/ \
-          && gh release download \
-            --repo remla25-team2/model-training \
-            --pattern 'c1_BoW_Sentiment_Model.pkl' \
-            --dir bow/
+          python - << 'PY'
+          import os, sys
+          cov = float(os.environ.get("COVER", "0")) * 100 # Default to 0 if COVER is not set
+          thr = float(os.environ["COVERAGE_THRESHOLD"])
+          print(f"Code Coverage: {cov:.1f}% (Threshold: {thr}%)")
+          if cov < thr:
+              sys.exit(f"Coverage {cov:.1f}% is below the threshold {thr}%")
+          PY
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install lib-version
+        run: |
+          python -m pip install --upgrade pip
+          pip install git+https://github.com/remla25-team2/lib-version@v0.2.2
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v2
+
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: remla25-team2-bot
           password: ${{ secrets.GHBOT_TOKEN }}
 
-      - name: Build & push multi-arch image
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ env.VERSION }}
-            ghcr.io/${{ github.repository }}:${{ env.MAJOR }}.${{ env.MINOR }}.latest
-            ghcr.io/${{ github.repository }}:latest
+      # For tagged releases
+      - name: Get release version with lib-version
+        id: get_version
+        run: |
+          VERSION=$(lib-version version current)
+          MAJOR=$(echo "$VERSION" | cut -d . -f 1)
+          MINOR=$(echo "$VERSION" | cut -d . -f 2)
+          echo "version=$VERSION" >> $GITHUB_ENV
+          echo "version_major=$MAJOR" >> $GITHUB_ENV
+          echo "version_minor=$MINOR" >> $GITHUB_ENV
+          echo "version=$VERSION"
+          echo "version_major=$MAJOR"
+          echo "version_minor=$MINOR"
+          BUMPED_VERSION=$(lib-version version next)
+          echo "bumped_version=$BUMPED_VERSION"
+
+      - name: Bump version with lib-version
+        if: startsWith(github.ref, 'refs/tags/')
+        id: bump_version
+        run: |
+          lib-version bump patch --push
+          VERSION=$(lib-version version current)
+          MAJOR=$(echo "$VERSION" | cut -d . -f 1)
+          MINOR=$(echo "$VERSION" | cut -d . -f 2)
+          echo "version=$VERSION" >> $GITHUB_ENV
+          echo "version_major=$MAJOR" >> $GITHUB_ENV
+          echo "version_minor=$MINOR" >> $GITHUB_ENV
+          echo "version=$VERSION"
+          echo "version_major=$MAJOR"
+          echo "version_minor=$MINOR"
+
+      - name: Create builder
+        id: buildx
+        run: |
+          IMG="ghcr.io/${{ github.repository }}"
+          IMG=${IMG@L}
+
+          docker buildx create --use --name multiarch-builder
+          docker buildx inspect --bootstrap
+
+      - name: Build and push multi-arch image (release)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          IMG="ghcr.io/${{ github.repository }}"
+          IMG=${IMG@L}
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag $IMG:${{ env.version }} \
+            --tag $IMG:${{ env.version_major }}.${{ env.version_minor }}.latest \
+            --tag $IMG:${{ env.version_major }}.latest \
+            --tag $IMG:latest \
+            --push \
+            .
+
+      # For main branch (pre-release)
+      - name: Get pre-release version with lib-version
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        id: pre_version
+        run: |
+          NEXT_VERSION=$(lib-version version next)
+          PRE_VERSION="${NEXT_VERSION}-pre"
+          echo "pre_version=$PRE_VERSION" >> $GITHUB_ENV
+
+      - name: Build and push multi-arch image (pre-release)
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        run: |
+          IMG="ghcr.io/${{ github.repository }}"
+          IMG=${IMG@L}
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag $IMG:${{ env.pre_version }} \
+            --tag $IMG:pre-release \
+            --push \
+            .
