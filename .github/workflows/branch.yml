@@ -41,7 +41,7 @@ jobs:
       - name: Unit tests + coverage
         run: |
           # Run tests with coverage for the 'app' directory
-          coverage run --source=app -m pytest tests/ -v
+          coverage run --source=app -m pytest -v
           coverage report
           coverage xml
           # Extract coverage percentage from the report
