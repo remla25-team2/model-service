@@ -4,3 +4,4 @@ lib-version @ git+https://github.com/remla25-team2/lib-version@v0.2.2
 joblib
 requests
 Werkzeug==2.2.3
+requests

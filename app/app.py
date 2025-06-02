@@ -3,8 +3,10 @@ Flask application for sentiment analysis using a pre-trained model.
 """
 import logging
 import os
+from pathlib import Path
 
 import joblib
+import requests
 from flask import Flask, jsonify, request
 from lib_ml.preprocessing import TextPreprocessor
 from lib_version.version_util import VersionUtil
@@ -13,13 +15,60 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Paths to artifacts included in the image
+# Paths to artifacts
 MODEL_PATH = "../models/SentimentModel.pkl"
 VECTORIZER_PATH = "../bow/c1_BoW_Sentiment_Model.pkl"
 
-def load_model_and_preprocessor():
-    """Load the model and preprocessor from included artifacts."""
+# Environment variables for model version
+MODEL_VERSION = os.environ.get("MODEL_VERSION", "latest")
+MODEL_REPO = os.environ.get("MODEL_REPO", "remla25-team2/model-training")
+
+def download_file(url, filepath):
+    """Download a file from URL to filepath."""
     try:
+        response = requests.get(url, stream=True, timeout=30)
+        response.raise_for_status()
+
+        # Create directory if it doesn't exist
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+
+        with open(filepath, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        logger.info("Downloaded %s", filepath)
+    except Exception as e:
+        logger.error("Failed to download %s: %s", url, e)
+        raise
+
+def download_model_artifacts():
+    """Download model artifacts from GitHub release if they don't exist."""
+    model_exists = os.path.exists(MODEL_PATH)
+    vectorizer_exists = os.path.exists(VECTORIZER_PATH)
+
+    if model_exists and vectorizer_exists:
+        logger.info("Model artifacts already exist, skipping download")
+        return
+
+    if MODEL_VERSION == "latest":
+        base_url = f"https://github.com/{MODEL_REPO}/releases/latest/download"
+    else:
+        base_url = f"https://github.com/{MODEL_REPO}/releases/download/v{MODEL_VERSION}"
+
+    if not model_exists:
+        model_url = f"{base_url}/SentimentModel.pkl"
+        download_file(model_url, MODEL_PATH)
+
+    if not vectorizer_exists:
+        vectorizer_url = f"{base_url}/c1_BoW_Sentiment_Model.pkl"
+        download_file(vectorizer_url, VECTORIZER_PATH)
+
+
+def load_model_and_preprocessor():
+    """Load the model and preprocessor from artifacts."""
+    try:
+        # Download artifacts if needed
+        download_model_artifacts()
+
         sentiment_model = joblib.load(MODEL_PATH)
         text_preprocessor = TextPreprocessor.load(VECTORIZER_PATH)
         logger.info("Successfully loaded model and preprocessor")
