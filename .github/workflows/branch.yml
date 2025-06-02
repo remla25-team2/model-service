@@ -1,0 +1,60 @@
+name: Branch CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+env:
+  PYTHON_VERSION: "3.10"
+  COVERAGE_THRESHOLD: "90"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install base dependencies first, including lib-ml and lib-version from requirements.txt
+          pip install -r requirements.txt
+          # Install development and testing tools
+          pip install pytest coverage pytest-cov pylint memory-profiler
+
+      - name: Pylint (warnings break the build)
+        run: |
+          # Assuming the main service code is in the 'app' directory relative to the repo root
+          # Adjust if your source code structure is different
+          pylint app
+
+      - name: Unit tests + coverage
+        run: |
+          # Run tests in the 'tests' directory and collect coverage for the 'app' directory
+          coverage run -m pytest -q tests/
+          coverage xml
+          # Extract coverage percentage from the XML report
+          echo "COVER=$(coverage xml -o - \
+                | grep -o 'line-rate=\"[0-9.]*\"' \
+                | cut -d\" -f2)" >> $GITHUB_ENV
+
+      - name: Fail if coverage below threshold
+        run: |
+          python - << 'PY'
+          import os, sys
+          cov = float(os.environ.get("COVER", "0")) * 100 # Default to 0 if COVER is not set
+          thr = float(os.environ["COVERAGE_THRESHOLD"])
+          print(f"Code Coverage: {cov:.1f}% (Threshold: {thr}%)")
+          if cov < thr:
+              sys.exit(f"Coverage {cov:.1f}% is below the threshold {thr}%")
+          PY
