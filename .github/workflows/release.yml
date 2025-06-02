@@ -5,7 +5,7 @@ on:
     branches:
       - main
     tags:
-      - "v*.*.*"
+      - "v*.*"
 
 env:
   PYTHON_VERSION: "3.10"
