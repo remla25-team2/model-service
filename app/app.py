@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Paths to artifacts
 MODEL_PATH = "../models/SentimentModel.pkl"
-VECTORIZER_PATH = "../bow/c1_BoW_Sentiment_Model.pkl"
+VECTORIZER_PATH = "../bow/BoW_Sentiment_Model.pkl"
 
 # Environment variables for model version
 MODEL_VERSION = os.environ.get("MODEL_VERSION", "latest")
@@ -59,7 +59,7 @@ def download_model_artifacts():
         download_file(model_url, MODEL_PATH)
 
     if not vectorizer_exists:
-        vectorizer_url = f"{base_url}/c1_BoW_Sentiment_Model.pkl"
+        vectorizer_url = f"{base_url}/BoW_Sentiment_Model.pkl"
         download_file(vectorizer_url, VECTORIZER_PATH)
 
 
