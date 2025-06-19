@@ -86,14 +86,14 @@ def predict():
     text = request.args.get("text", "")
     x_sparse = preprocessor.transform([text])
     x_array = x_sparse.toarray()
-    
+
     # Get both prediction and probabilities
     prediction = model.predict(x_array)[0]
     probabilities = model.predict_proba(x_array)[0]
-    
+
     # Calculate confidence as the maximum probability
     confidence = float(max(probabilities))
-    
+
     return jsonify(
         sentiment=int(prediction),
         confidence=confidence
