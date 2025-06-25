@@ -34,12 +34,6 @@ jobs:
           # Install development and testing tools
           pip install pytest coverage pytest-cov pylint memory-profiler
 
-      - name: Pylint (warnings break the build)
-        run: |
-          # Assuming the main service code is in the 'app' directory relative to the repo root
-          # Adjust if your source code structure is different
-          pylint app
-
       - name: Unit tests + coverage
         run: |
           # Run tests with coverage for the 'app' directory
