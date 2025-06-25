@@ -84,20 +84,62 @@ model, preprocessor = load_model_and_preprocessor()
 def predict():
     """Predict sentiment for given text."""
     text = request.args.get("text", "")
-    x_sparse = preprocessor.transform([text])
-    x_array = x_sparse.toarray()
+    
+    try:
+        x_sparse = preprocessor.transform([text])
+        x_array = x_sparse.toarray()
+        
+        # Log feature extraction info for debugging
+        feature_count = x_array.shape[1] if len(x_array.shape) > 1 else 0
+        non_zero_features = int(sum(x_array[0] != 0)) if len(x_array) > 0 and len(x_array[0]) > 0 else 0
+        logger.info(f"Text: '{text[:50]}...', Features: {non_zero_features}/{feature_count}")
 
-    # Get both prediction and probabilities
-    prediction = model.predict(x_array)[0]
-    probabilities = model.predict_proba(x_array)[0]
+        # Get both prediction and probabilities
+        prediction = model.predict(x_array)[0]
+        probabilities = model.predict_proba(x_array)[0]
+        
+        # Safety check for empty probabilities
+        if len(probabilities) == 0:
+            logger.error("Model returned empty probabilities array")
+            return jsonify(
+                error="Model prediction failed",
+                sentiment=0,
+                confidence=0.0
+            ), 500
 
-    # Calculate confidence as the maximum probability
-    confidence = float(max(probabilities))
-
-    return jsonify(
-        sentiment=int(prediction),
-        confidence=confidence
-    )
+        # Calculate confidence as the maximum probability
+        confidence = float(max(probabilities))
+        
+        # Log suspicious predictions for debugging
+        if confidence > 0.99:
+            logger.warning(f"High confidence prediction: text='{text}', prediction={prediction}, confidence={confidence:.6f}, features_active={non_zero_features}")
+        
+        # Detect potential vocabulary mismatch issues
+        if non_zero_features == 0 and len(text.strip()) > 0:
+            logger.warning(f"No features extracted for non-empty text: '{text}' - possible vocabulary mismatch")
+            # Still return the prediction but flag it
+            return jsonify(
+                sentiment=int(prediction),
+                confidence=confidence,
+                warning="Low feature extraction - possible vocabulary mismatch"
+            )
+        
+        return jsonify(
+            sentiment=int(prediction),
+            confidence=confidence,
+            debug_info={
+                "features_extracted": non_zero_features,
+                "total_features": feature_count
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Prediction error for text '{text}': {e}")
+        return jsonify(
+            error=f"Prediction failed: {str(e)}",
+            sentiment=0,
+            confidence=0.0
+        ), 500
 
 
 @app.route("/check_health", methods=["GET"])
