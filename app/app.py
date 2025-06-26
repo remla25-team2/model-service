@@ -86,7 +86,8 @@ def predict():
     text = request.args.get("text", "")
     
     try:
-        x_sparse = preprocessor.transform([text])
+        processed_text = preprocessor.process_item(text)
+        x_sparse = preprocessor.transform([processed_text])
         x_array = x_sparse.toarray()
         
         # Log feature extraction info for debugging
