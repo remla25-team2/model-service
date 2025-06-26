@@ -70,7 +70,8 @@ def load_model_and_preprocessor():
         download_model_artifacts()
 
         sentiment_model = joblib.load(MODEL_PATH)
-        text_preprocessor = TextPreprocessor.load(VECTORIZER_PATH)
+        text_preprocessor = TextPreprocessor()  # calls __init__
+        text_preprocessor._vectorizer = joblib.load(VECTORIZER_PATH)
         logger.info("Successfully loaded model and preprocessor")
         return sentiment_model, text_preprocessor
     except Exception as e:
